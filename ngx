@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+set -o pipefail
+
+GRN='\033[32m'
+RED='\033[31m'
+DRK='\033[37;02m'
+CLR='\033[0m'
+
+PASS='✔'
+FAIL='✘'
+
+function _usage() {
+    echo 'Usage: ngx [--help] filename' >&2
+    exit 1
+}
+
+function _help() {
+    nginx -v
+    echo 'Usage: ngx [--help] filename'
+    echo
+    echo 'Options:'
+    echo '  -h, --help  show this help message and exit'
+    echo
+    exit 0
+}
+
+function ask() {
+    # https://djm.me/ask
+    local PROMPT='y/n'
+    local DEFAULT=''
+    local REPLY=''
+
+    while true; do
+        if [ "${2:-}" = "Y" ]; then
+            PROMPT="Y/n"
+            DEFAULT=Y
+        elif [ "${2:-}" = "N" ]; then
+            PROMPT="y/N"
+            DEFAULT=N
+        fi
+        echo -n "$1 [$PROMPT] "
+
+        # Read the answer
+        read REPLY < /dev/tty  # stdin could be redirected
+        if [ -z "$REPLY" ]; then
+            REPLY=$DEFAULT
+        fi
+
+        case "$REPLY" in
+            Y|y) return 0 ;;
+            N|n) return 1 ;;
+        esac
+    done
+}
+
+function do_command() {
+    local OUTPUT_FILE='/tmp/ngx.out'
+    local RETURN_CODE=0
+    local DESCRIPTION="${1?description not specified}"
+    local TO_EVALUATE="${2?command not specified}"
+
+    echo -n "$DESCRIPTION ... "
+
+    if eval $TO_EVALUATE > $OUTPUT_FILE 2>&1; then
+        echo -e "${GRN}${PASS}${CLR}"
+    else
+        echo -e "${RED}${FAIL}${CLR}"
+        echo -e "${DRK}$(cat $OUTPUT_FILE)${CLR}" >&2
+        RETURN_CODE=1
+    fi
+
+    rm -f $OUTPUT_FILE
+    return $RETURN_CODE
+}
+
+# check that only one or two args were passed in
+if [ $# -lt 1 -o $# -gt 2 ]; then
+    _usage
+fi
+
+# if -h was passed in then print help and exit
+for ARG in $*; do
+    case $ARG in
+        -h|--help)
+            _help
+            ;;
+    esac
+done
+
+# if 2 args were passed in, -h must've been one
+if [ $# -eq 2 ]; then
+    _usage
+fi
+
+# ask to stop any running nginx processes if there are any
+if ps xao command | grep 'nginx[:]'; then
+    if ask "wanna kill 'em?" N; then
+        do_command \
+            "killing nginx processes" \
+            "ps xao pid,command | grep 'nginx[:]' | cut -d' ' -f1 | xargs kill -SIGINT" \
+            || exit 1
+    else
+        exit 0
+    fi
+fi
+
+# run tests on the given nginx config file
+FILEPATH="$(realpath $1)" \
+&& do_command "testing config file $FILEPATH" "nginx -c $FILEPATH -t" \
+&& do_command "starting nginx with $FILEPATH" "nginx -c $FILEPATH" \
+&& do_command "stopping nginx with $FILEPATH" "nginx -c $FILEPATH -s stop"
