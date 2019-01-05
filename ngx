@@ -105,7 +105,7 @@ if ps xao command | grep 'nginx[:]'; then
 fi
 
 # run tests on the given nginx config file
-FILEPATH="$(realpath $1)" \
+FILEPATH="$(command -v realpath >/dev/null && realpath $1 || readlink -f $1)" \
 && do_command "testing config file $FILEPATH" "nginx -c $FILEPATH -t" \
 && do_command "starting nginx with $FILEPATH" "nginx -c $FILEPATH" \
 && do_command "stopping nginx with $FILEPATH" "nginx -c $FILEPATH -s stop"
